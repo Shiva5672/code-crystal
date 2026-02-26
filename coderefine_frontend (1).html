@@ -1,0 +1,1046 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>CodeRefine — AI Code Review Engine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #111118;
+    --surface2: #18181f;
+    --border: #2a2a35;
+    --accent: #00e5ff;
+    --accent2: #7c3aed;
+    --accent3: #f59e0b;
+    --green: #10b981;
+    --red: #ef4444;
+    --orange: #f97316;
+    --yellow: #eab308;
+    --text: #e8e8f0;
+    --muted: #6b6b80;
+    --font-display: 'Bebas Neue', sans-serif;
+    --font-mono: 'Space Mono', monospace;
+    --font-body: 'DM Sans', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Noise overlay ── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none; z-index: 0; opacity: 0.5;
+  }
+
+  /* ── Ambient glow blobs ── */
+  .blob {
+    position: fixed; border-radius: 50%; filter: blur(120px);
+    pointer-events: none; z-index: 0; animation: drift 12s ease-in-out infinite;
+  }
+  .blob-1 { width: 600px; height: 600px; background: rgba(0,229,255,0.06); top: -200px; right: -100px; animation-delay: 0s; }
+  .blob-2 { width: 500px; height: 500px; background: rgba(124,58,237,0.07); bottom: 0; left: -100px; animation-delay: -6s; }
+  @keyframes drift { 0%,100% { transform: translate(0,0); } 50% { transform: translate(30px,-20px); } }
+
+  /* ── Layout ── */
+  .app { position: relative; z-index: 1; max-width: 1400px; margin: 0 auto; padding: 0 24px; }
+
+  /* ── Header ── */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 24px 0; border-bottom: 1px solid var(--border);
+    animation: fadeDown 0.6s ease;
+  }
+  .logo { display: flex; align-items: center; gap: 12px; text-decoration: none; }
+  .logo-mark {
+    width: 40px; height: 40px; border-radius: 10px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-display); font-size: 20px; color: #000; letter-spacing: -1px;
+    box-shadow: 0 0 20px rgba(0,229,255,0.3);
+  }
+  .logo-text { font-family: var(--font-display); font-size: 28px; letter-spacing: 2px; color: var(--text); }
+  .logo-text span { color: var(--accent); }
+
+  nav { display: flex; align-items: center; gap: 8px; }
+  .nav-pill {
+    padding: 8px 16px; border-radius: 100px; font-size: 13px; font-weight: 500;
+    cursor: pointer; border: 1px solid transparent; transition: all 0.2s;
+    background: none; color: var(--muted); font-family: var(--font-body);
+  }
+  .nav-pill:hover { color: var(--text); border-color: var(--border); }
+  .nav-pill.active { background: var(--surface2); color: var(--text); border-color: var(--border); }
+  .btn-primary {
+    padding: 9px 20px; border-radius: 100px;
+    background: var(--accent); color: #000; font-weight: 600; font-size: 13px;
+    border: none; cursor: pointer; transition: all 0.2s; font-family: var(--font-body);
+    box-shadow: 0 0 20px rgba(0,229,255,0.2);
+  }
+  .btn-primary:hover { background: #00bcd4; box-shadow: 0 0 30px rgba(0,229,255,0.4); transform: translateY(-1px); }
+
+  /* ── Hero ── */
+  .hero {
+    padding: 80px 0 60px;
+    text-align: center;
+    animation: fadeUp 0.8s ease 0.1s both;
+  }
+  .hero-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 14px; border-radius: 100px;
+    border: 1px solid rgba(0,229,255,0.3); background: rgba(0,229,255,0.05);
+    font-size: 12px; color: var(--accent); font-family: var(--font-mono);
+    margin-bottom: 24px; letter-spacing: 1px;
+  }
+  .hero-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse 2s infinite; }
+  .hero h1 {
+    font-family: var(--font-display); font-size: clamp(56px, 10vw, 100px);
+    line-height: 0.9; letter-spacing: 2px; color: var(--text);
+    margin-bottom: 24px;
+  }
+  .hero h1 .accent { color: var(--accent); }
+  .hero h1 .dim { color: var(--muted); }
+  .hero p { font-size: 16px; color: var(--muted); max-width: 520px; margin: 0 auto 40px; line-height: 1.7; }
+
+  .hero-stats {
+    display: flex; justify-content: center; gap: 48px; margin-top: 48px;
+    padding-top: 48px; border-top: 1px solid var(--border);
+  }
+  .stat { text-align: center; }
+  .stat-num { font-family: var(--font-display); font-size: 40px; color: var(--accent); letter-spacing: 1px; }
+  .stat-label { font-size: 12px; color: var(--muted); font-family: var(--font-mono); letter-spacing: 1px; }
+
+  /* ── Main Editor Area ── */
+  .editor-section { padding: 0 0 60px; animation: fadeUp 0.8s ease 0.2s both; }
+
+  .editor-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px; flex-wrap: wrap; gap: 12px;
+  }
+  .toolbar-left { display: flex; align-items: center; gap: 12px; }
+  .toolbar-label { font-size: 11px; color: var(--muted); font-family: var(--font-mono); letter-spacing: 1px; }
+
+  .select-custom {
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); font-family: var(--font-mono); font-size: 12px;
+    padding: 7px 12px; border-radius: 8px; cursor: pointer; outline: none;
+    transition: border-color 0.2s;
+  }
+  .select-custom:hover, .select-custom:focus { border-color: var(--accent); }
+
+  .editor-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 2px; border-radius: 16px; overflow: hidden;
+    border: 1px solid var(--border);
+    background: var(--border);
+    box-shadow: 0 0 60px rgba(0,0,0,0.5);
+  }
+
+  .editor-pane {
+    background: var(--surface);
+    display: flex; flex-direction: column;
+  }
+  .pane-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+  }
+  .pane-title {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--muted); letter-spacing: 1px;
+  }
+  .pane-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .dot-red { background: #ef4444; }
+  .dot-yellow { background: #eab308; }
+  .dot-green { background: #10b981; }
+
+  .pane-actions { display: flex; gap: 8px; }
+  .icon-btn {
+    width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--border);
+    background: none; color: var(--muted); cursor: pointer; display: flex;
+    align-items: center; justify-content: center; transition: all 0.15s;
+    font-size: 13px;
+  }
+  .icon-btn:hover { color: var(--text); border-color: var(--accent); background: rgba(0,229,255,0.05); }
+
+  .code-editor {
+    flex: 1; width: 100%; min-height: 380px;
+    background: transparent; border: none; outline: none;
+    color: var(--text); font-family: var(--font-mono); font-size: 13px;
+    line-height: 1.7; padding: 20px; resize: none;
+    tab-size: 2;
+  }
+  .code-editor::placeholder { color: var(--muted); }
+
+  .code-output {
+    flex: 1; min-height: 380px; padding: 20px;
+    font-family: var(--font-mono); font-size: 13px; line-height: 1.7;
+    color: #a5f3fc; overflow-y: auto; white-space: pre-wrap; word-break: break-word;
+  }
+  .output-placeholder {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 100%; gap: 12px; color: var(--muted);
+  }
+  .output-placeholder .big-icon { font-size: 48px; opacity: 0.3; }
+  .output-placeholder p { font-family: var(--font-mono); font-size: 12px; letter-spacing: 1px; }
+
+  /* ── Analyze Button ── */
+  .analyze-bar {
+    display: flex; align-items: center; justify-content: center;
+    gap: 16px; padding: 24px 0;
+  }
+  .btn-analyze {
+    position: relative; overflow: hidden;
+    padding: 14px 48px; border-radius: 12px;
+    background: linear-gradient(135deg, var(--accent), #0099ff);
+    color: #000; font-weight: 700; font-size: 15px;
+    border: none; cursor: pointer; font-family: var(--font-body);
+    transition: all 0.3s; letter-spacing: 0.5px;
+    box-shadow: 0 4px 30px rgba(0,229,255,0.3);
+  }
+  .btn-analyze::before {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(135deg, transparent 40%, rgba(255,255,255,0.2));
+    transition: opacity 0.3s; opacity: 0;
+  }
+  .btn-analyze:hover { transform: translateY(-2px); box-shadow: 0 8px 40px rgba(0,229,255,0.5); }
+  .btn-analyze:hover::before { opacity: 1; }
+  .btn-analyze:active { transform: translateY(0); }
+  .btn-analyze:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+  .btn-analyze .spinner {
+    display: none; width: 16px; height: 16px; border: 2px solid rgba(0,0,0,0.3);
+    border-top-color: #000; border-radius: 50%; animation: spin 0.6s linear infinite;
+    vertical-align: middle; margin-right: 8px;
+  }
+  .btn-analyze.loading .spinner { display: inline-block; }
+  .btn-analyze.loading .btn-text::before { content: 'Analyzing...'; }
+  .btn-analyze.loading .btn-text-default { display: none; }
+
+  .provider-select { display: flex; align-items: center; gap: 8px; }
+  .provider-label { font-size: 12px; color: var(--muted); font-family: var(--font-mono); }
+
+  /* ── Results ── */
+  .results-section { padding-bottom: 80px; animation: fadeUp 0.5s ease; }
+  .results-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+  .results-title { font-family: var(--font-display); font-size: 32px; letter-spacing: 2px; }
+
+  .summary-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 16px; padding: 24px; margin-bottom: 24px;
+    border-left: 3px solid var(--accent);
+  }
+  .summary-card h3 { font-size: 12px; color: var(--accent); font-family: var(--font-mono); letter-spacing: 1px; margin-bottom: 10px; }
+  .summary-card p { color: var(--muted); line-height: 1.7; font-size: 14px; }
+
+  .severity-bar {
+    display: flex; gap: 12px; margin-bottom: 28px; flex-wrap: wrap;
+  }
+  .severity-chip {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 16px; border-radius: 100px;
+    font-size: 13px; font-weight: 500; font-family: var(--font-mono);
+    border: 1px solid;
+  }
+  .severity-chip .count { font-size: 18px; font-family: var(--font-display); }
+  .chip-critical { border-color: rgba(239,68,68,0.4); background: rgba(239,68,68,0.05); color: #ef4444; }
+  .chip-high { border-color: rgba(249,115,22,0.4); background: rgba(249,115,22,0.05); color: #f97316; }
+  .chip-medium { border-color: rgba(234,179,8,0.4); background: rgba(234,179,8,0.05); color: #eab308; }
+  .chip-low { border-color: rgba(16,185,129,0.4); background: rgba(16,185,129,0.05); color: #10b981; }
+  .chip-info { border-color: rgba(0,229,255,0.4); background: rgba(0,229,255,0.05); color: var(--accent); }
+
+  .issues-list { display: flex; flex-direction: column; gap: 12px; }
+
+  .issue-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; overflow: hidden;
+    transition: transform 0.2s, box-shadow 0.2s;
+    animation: slideIn 0.4s ease both;
+  }
+  .issue-card:hover { transform: translateX(4px); box-shadow: -4px 0 0 var(--accent), 0 4px 20px rgba(0,0,0,0.3); }
+
+  .issue-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px; cursor: pointer; user-select: none;
+  }
+  .issue-left { display: flex; align-items: center; gap: 12px; }
+  .issue-badge {
+    padding: 3px 10px; border-radius: 100px; font-size: 11px;
+    font-family: var(--font-mono); letter-spacing: 0.5px; font-weight: 700;
+  }
+  .badge-critical { background: rgba(239,68,68,0.15); color: #ef4444; }
+  .badge-high { background: rgba(249,115,22,0.15); color: #f97316; }
+  .badge-medium { background: rgba(234,179,8,0.15); color: #eab308; }
+  .badge-low { background: rgba(16,185,129,0.15); color: #10b981; }
+  .badge-info { background: rgba(0,229,255,0.1); color: var(--accent); }
+
+  .issue-type-tag {
+    padding: 3px 10px; border-radius: 100px;
+    font-size: 11px; font-family: var(--font-mono); letter-spacing: 0.5px;
+    background: var(--surface2); color: var(--muted); border: 1px solid var(--border);
+  }
+  .issue-desc { font-size: 14px; color: var(--text); }
+  .issue-line { font-size: 11px; color: var(--muted); font-family: var(--font-mono); }
+
+  .issue-body {
+    padding: 0 18px; max-height: 0; overflow: hidden;
+    transition: max-height 0.3s ease, padding 0.3s;
+    border-top: 0 solid var(--border);
+  }
+  .issue-body.open {
+    padding: 14px 18px; max-height: 300px;
+    border-top-width: 1px;
+  }
+  .suggestion-box {
+    background: rgba(16,185,129,0.05); border: 1px solid rgba(16,185,129,0.2);
+    border-radius: 8px; padding: 12px 14px;
+    font-size: 13px; color: #6ee7b7; line-height: 1.6;
+    font-family: var(--font-body);
+  }
+  .suggestion-box strong { display: block; font-family: var(--font-mono); font-size: 11px; color: var(--green); letter-spacing: 1px; margin-bottom: 6px; }
+
+  /* ── Diff View ── */
+  .diff-section { margin-top: 32px; }
+  .diff-section h3 { font-family: var(--font-display); font-size: 24px; letter-spacing: 2px; margin-bottom: 16px; }
+
+  .diff-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 2px; border-radius: 16px; overflow: hidden;
+    border: 1px solid var(--border); background: var(--border);
+  }
+  .diff-pane { background: var(--surface); }
+  .diff-pane-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+  }
+  .diff-pane-label { font-family: var(--font-mono); font-size: 11px; letter-spacing: 1px; }
+  .label-original { color: #ef4444; }
+  .label-optimized { color: var(--green); }
+
+  .diff-code {
+    padding: 20px; font-family: var(--font-mono); font-size: 12px;
+    line-height: 1.7; overflow-x: auto; white-space: pre; min-height: 200px;
+    max-height: 500px; overflow-y: auto;
+  }
+  .diff-code.original { color: #fca5a5; }
+  .diff-code.optimized { color: #6ee7b7; }
+
+  .copy-btn {
+    padding: 5px 12px; border-radius: 6px; font-size: 11px;
+    font-family: var(--font-mono); background: none; border: 1px solid var(--border);
+    color: var(--muted); cursor: pointer; transition: all 0.2s;
+  }
+  .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Footer ── */
+  footer {
+    border-top: 1px solid var(--border); padding: 32px 0;
+    text-align: center; color: var(--muted);
+    font-size: 12px; font-family: var(--font-mono); letter-spacing: 1px;
+  }
+  footer .accent { color: var(--accent); }
+
+  /* ── Animations ── */
+  @keyframes fadeDown { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes slideIn { from { opacity: 0; transform: translateX(-16px); } to { opacity: 1; transform: translateX(0); } }
+  @keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.8); } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes shimmer {
+    0% { background-position: -500px 0; }
+    100% { background-position: 500px 0; }
+  }
+
+  .skeleton {
+    background: linear-gradient(90deg, var(--surface2) 0px, var(--border) 250px, var(--surface2) 500px);
+    background-size: 500px 100%; animation: shimmer 1.5s infinite linear;
+    border-radius: 8px;
+  }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+  /* ── Toast ── */
+  .toast {
+    position: fixed; bottom: 24px; right: 24px;
+    padding: 12px 20px; border-radius: 10px;
+    background: var(--surface2); border: 1px solid var(--border);
+    font-size: 13px; font-family: var(--font-mono);
+    transform: translateY(80px); opacity: 0;
+    transition: all 0.3s; z-index: 9999;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+  }
+  .toast.show { transform: translateY(0); opacity: 1; }
+  .toast.success { border-color: var(--green); color: #6ee7b7; }
+  .toast.error { border-color: var(--red); color: #fca5a5; }
+
+  /* ── Responsive ── */
+  @media (max-width: 768px) {
+    .editor-grid, .diff-grid { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 56px; }
+    .hero-stats { gap: 24px; }
+    nav { display: none; }
+  }
+
+  /* ── Empty state ── */
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div class="blob blob-1"></div>
+<div class="blob blob-2"></div>
+
+<div class="app">
+
+  <!-- HEADER -->
+  <header>
+    <a class="logo" href="#">
+      <div class="logo-mark">CR</div>
+      <span class="logo-text">Code<span>Refine</span></span>
+    </a>
+    <nav>
+      <button class="nav-pill active" onclick="showSection('review')">Review</button>
+      <button class="nav-pill" onclick="showSection('history')">History</button>
+      <button class="nav-pill" onclick="showSection('docs')">Docs</button>
+    </nav>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="nav-pill" onclick="openAuthModal('login')">Sign In</button>
+      <button class="btn-primary" onclick="openAuthModal('register')">Get Started</button>
+    </div>
+  </header>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-badge">⬡ AI-POWERED · MULTI-LANGUAGE · REAL-TIME</div>
+    <h1>CODE<br><span class="dim">REVIEW</span><br><span class="accent">REFINED.</span></h1>
+    <p>Paste your code. Let the AI engine detect bugs, vulnerabilities, and performance bottlenecks — then get a production-ready optimized version instantly.</p>
+    <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
+      <button class="btn-primary" onclick="document.getElementById('code-input').focus()" style="font-size:15px;padding:13px 32px;">Start Reviewing →</button>
+      <button class="nav-pill" style="border:1px solid var(--border);font-size:15px;padding:13px 28px;" onclick="loadDemo()">Load Demo Code</button>
+    </div>
+    <div class="hero-stats">
+      <div class="stat"><div class="stat-num">15+</div><div class="stat-label">LANGUAGES</div></div>
+      <div class="stat"><div class="stat-num">4</div><div class="stat-label">ANALYSIS TYPES</div></div>
+      <div class="stat"><div class="stat-num">3</div><div class="stat-label">AI PROVIDERS</div></div>
+      <div class="stat"><div class="stat-num">&lt;5s</div><div class="stat-label">RESPONSE TIME</div></div>
+    </div>
+  </section>
+
+  <!-- EDITOR SECTION -->
+  <section class="editor-section" id="section-review">
+    <div class="editor-toolbar">
+      <div class="toolbar-left">
+        <span class="toolbar-label">INPUT CODE</span>
+        <select class="select-custom" id="lang-select">
+          <option value="">Auto-detect</option>
+          <option value="python">Python</option>
+          <option value="javascript">JavaScript</option>
+          <option value="typescript">TypeScript</option>
+          <option value="java">Java</option>
+          <option value="c">C</option>
+          <option value="cpp">C++</option>
+          <option value="go">Go</option>
+          <option value="rust">Rust</option>
+          <option value="php">PHP</option>
+          <option value="ruby">Ruby</option>
+          <option value="swift">Swift</option>
+          <option value="kotlin">Kotlin</option>
+          <option value="sql">SQL</option>
+          <option value="bash">Bash</option>
+        </select>
+        <select class="select-custom" id="provider-select">
+          <option value="groq">⚡ Groq (Fast)</option>
+          <option value="gemini">✦ Gemini</option>
+          <option value="huggingface">🤗 HuggingFace</option>
+        </select>
+      </div>
+      <div class="pane-actions">
+        <button class="icon-btn" title="Upload file" onclick="triggerUpload()">⬆</button>
+        <button class="icon-btn" title="Clear" onclick="clearCode()">✕</button>
+        <input type="file" id="file-upload" accept=".py,.js,.ts,.java,.c,.cpp,.go,.rs,.php,.rb,.swift,.kt,.sql,.sh" style="display:none" onchange="handleFileUpload(event)"/>
+      </div>
+    </div>
+
+    <div class="editor-grid">
+      <!-- Input pane -->
+      <div class="editor-pane">
+        <div class="pane-header">
+          <div class="pane-title">
+            <span class="pane-dot dot-red"></span>
+            <span class="pane-dot dot-yellow"></span>
+            <span class="pane-dot dot-green"></span>
+            <span style="margin-left:6px">INPUT</span>
+          </div>
+          <div class="pane-actions">
+            <button class="icon-btn" title="Copy" onclick="copyCode('input')">⎘</button>
+          </div>
+        </div>
+        <textarea
+          class="code-editor"
+          id="code-input"
+          placeholder="// Paste your code here...
+// Supports Python, JavaScript, Java, C++, Go, Rust and more.
+
+function example() {
+  var password = '12345'
+  eval(userInput)
+  for(var i=0;i<1000000;i++){
+    db.query('SELECT * FROM users')
+  }
+}"
+          spellcheck="false"
+          autocomplete="off"
+        ></textarea>
+      </div>
+
+      <!-- Output pane -->
+      <div class="editor-pane">
+        <div class="pane-header">
+          <div class="pane-title">
+            <span class="pane-dot dot-red"></span>
+            <span class="pane-dot dot-yellow"></span>
+            <span class="pane-dot dot-green"></span>
+            <span style="margin-left:6px">OPTIMIZED OUTPUT</span>
+          </div>
+          <div class="pane-actions">
+            <button class="icon-btn" title="Copy output" onclick="copyCode('output')">⎘</button>
+          </div>
+        </div>
+        <div class="code-output" id="code-output">
+          <div class="output-placeholder" id="output-placeholder">
+            <span class="big-icon">⬡</span>
+            <p>OPTIMIZED CODE APPEARS HERE</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Analyze bar -->
+    <div class="analyze-bar">
+      <button class="btn-analyze" id="analyze-btn" onclick="analyzeCode()">
+        <span class="spinner"></span>
+        <span class="btn-text-default">⬡ Analyze & Optimize Code</span>
+      </button>
+      <select class="select-custom" id="focus-select" multiple style="display:none"></select>
+    </div>
+
+    <!-- Focus areas chips -->
+    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:-8px;margin-bottom:24px">
+      <span style="font-size:11px;color:var(--muted);font-family:var(--font-mono);align-self:center">FOCUS:</span>
+      <label class="focus-chip" data-val="bug"><input type="checkbox" value="bug" style="display:none" onchange="updateFocus(this)"> 🐛 Bugs</label>
+      <label class="focus-chip" data-val="security"><input type="checkbox" value="security" style="display:none" onchange="updateFocus(this)"> 🔒 Security</label>
+      <label class="focus-chip" data-val="performance"><input type="checkbox" value="performance" style="display:none" onchange="updateFocus(this)"> ⚡ Performance</label>
+      <label class="focus-chip" data-val="style"><input type="checkbox" value="style" style="display:none" onchange="updateFocus(this)"> ✦ Style</label>
+      <label class="focus-chip" data-val="maintainability"><input type="checkbox" value="maintainability" style="display:none" onchange="updateFocus(this)"> ♻ Maintainability</label>
+    </div>
+    <style>
+      .focus-chip {
+        padding: 6px 14px; border-radius: 100px; font-size: 12px;
+        border: 1px solid var(--border); color: var(--muted); cursor: pointer;
+        transition: all 0.2s; font-family: var(--font-mono);
+        user-select: none;
+      }
+      .focus-chip:hover { border-color: var(--accent); color: var(--text); }
+      .focus-chip.selected { border-color: var(--accent); color: var(--accent); background: rgba(0,229,255,0.07); }
+    </style>
+  </section>
+
+  <!-- RESULTS SECTION -->
+  <section class="results-section hidden" id="results-section">
+    <div class="results-header">
+      <div class="results-title">ANALYSIS RESULTS</div>
+      <button class="copy-btn" onclick="downloadReport()">⬇ Download Report</button>
+    </div>
+
+    <!-- Summary -->
+    <div class="summary-card" id="result-summary">
+      <h3>// AI SUMMARY</h3>
+      <p id="summary-text"></p>
+    </div>
+
+    <!-- Severity bar -->
+    <div class="severity-bar" id="severity-bar"></div>
+
+    <!-- Issues list -->
+    <div class="issues-list" id="issues-list"></div>
+
+    <!-- Diff view -->
+    <div class="diff-section">
+      <h3>SIDE-BY-SIDE COMPARISON</h3>
+      <div class="diff-grid">
+        <div class="diff-pane">
+          <div class="diff-pane-header">
+            <span class="diff-pane-label label-original">✕ ORIGINAL</span>
+            <button class="copy-btn" onclick="copyText(originalCode)">Copy</button>
+          </div>
+          <div class="diff-code original" id="diff-original"></div>
+        </div>
+        <div class="diff-pane">
+          <div class="diff-pane-header">
+            <span class="diff-pane-label label-optimized">✓ OPTIMIZED</span>
+            <button class="copy-btn" onclick="copyText(optimizedCode)">Copy</button>
+          </div>
+          <div class="diff-code optimized" id="diff-optimized"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <p>Built by <span class="accent">Code Crystal</span> · CodeRefine v1.0 · Powered by Generative AI</p>
+  </footer>
+
+</div>
+
+<!-- AUTH MODAL -->
+<div id="auth-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:1000;display:none;align-items:center;justify-content:center;backdrop-filter:blur(10px);">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:40px;width:100%;max-width:420px;position:relative;animation:fadeUp 0.3s ease">
+    <button onclick="closeAuthModal()" style="position:absolute;top:16px;right:16px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;">✕</button>
+    <div style="text-align:center;margin-bottom:28px">
+      <div style="font-family:var(--font-display);font-size:28px;letter-spacing:2px;" id="modal-title">SIGN IN</div>
+      <p style="color:var(--muted);font-size:13px;margin-top:6px">Access your review history &amp; reports</p>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div id="register-name-field" style="display:none">
+        <label style="font-size:11px;color:var(--muted);font-family:var(--font-mono);letter-spacing:1px;display:block;margin-bottom:6px">USERNAME</label>
+        <input type="text" id="auth-username" placeholder="code_crystal" style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:12px 14px;border-radius:10px;font-size:14px;outline:none;font-family:var(--font-mono);transition:border-color 0.2s" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"/>
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--muted);font-family:var(--font-mono);letter-spacing:1px;display:block;margin-bottom:6px">EMAIL</label>
+        <input type="email" id="auth-email" placeholder="dev@example.com" style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:12px 14px;border-radius:10px;font-size:14px;outline:none;font-family:var(--font-mono);transition:border-color 0.2s" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"/>
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--muted);font-family:var(--font-mono);letter-spacing:1px;display:block;margin-bottom:6px">PASSWORD</label>
+        <input type="password" id="auth-password" placeholder="••••••••" style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:12px 14px;border-radius:10px;font-size:14px;outline:none;font-family:var(--font-mono);transition:border-color 0.2s" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"/>
+      </div>
+      <button onclick="submitAuth()" class="btn-primary" style="padding:14px;border-radius:10px;font-size:15px;width:100%;margin-top:8px" id="auth-submit-btn">Sign In</button>
+      <p style="text-align:center;font-size:12px;color:var(--muted)" id="modal-switch">
+        Don't have an account? <a href="#" onclick="openAuthModal('register');return false" style="color:var(--accent)">Register</a>
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+  // ── State ──
+  let analysisResult = null;
+  let originalCode = '';
+  let optimizedCode = '';
+  let focusAreas = [];
+  const API_BASE = 'http://localhost:8000';
+  let authToken = localStorage.getItem('cr_token') || null;
+
+  // ── Init ──
+  document.addEventListener('DOMContentLoaded', () => {
+    // Tab key in textarea
+    document.getElementById('code-input').addEventListener('keydown', e => {
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        const s = e.target.selectionStart;
+        e.target.value = e.target.value.substring(0, s) + '  ' + e.target.value.substring(e.target.selectionEnd);
+        e.target.selectionStart = e.target.selectionEnd = s + 2;
+      }
+    });
+  });
+
+  // ── Demo ──
+  const demoCode = `import sqlite3
+import hashlib
+
+def get_user(username):
+    conn = sqlite3.connect('users.db')
+    cursor = conn.cursor()
+    # SQL Injection vulnerability
+    query = "SELECT * FROM users WHERE username = '" + username + "'"
+    cursor.execute(query)
+    return cursor.fetchone()
+
+def hash_password(password):
+    # Weak hashing algorithm
+    return hashlib.md5(password.encode()).hexdigest()
+
+def process_data(items):
+    result = []
+    # Performance issue: O(n^2) complexity
+    for i in range(len(items)):
+        for j in range(len(items)):
+            if items[i] == items[j] and i != j:
+                result.append(items[i])
+    return result
+
+# Hardcoded credentials
+DB_PASSWORD = "admin123"
+API_KEY = "sk-1234567890abcdef"
+
+def login(user, pwd):
+    stored = get_user(user)
+    if stored and stored[1] == pwd:  # Plain text comparison
+        return True
+    return False`;
+
+  function loadDemo() {
+    document.getElementById('code-input').value = demoCode;
+    document.getElementById('lang-select').value = 'python';
+    showToast('Demo code loaded — Python with intentional vulnerabilities', 'success');
+  }
+
+  // ── Focus areas ──
+  function updateFocus(checkbox) {
+    const label = checkbox.closest('label');
+    if (checkbox.checked) {
+      focusAreas.push(checkbox.value);
+      label.classList.add('selected');
+    } else {
+      focusAreas = focusAreas.filter(f => f !== checkbox.value);
+      label.classList.remove('selected');
+    }
+  }
+
+  // ── Analyze ──
+  async function analyzeCode() {
+    const code = document.getElementById('code-input').value.trim();
+    if (!code) { showToast('Please enter some code first!', 'error'); return; }
+
+    const btn = document.getElementById('analyze-btn');
+    btn.classList.add('loading');
+    btn.disabled = true;
+
+    // Reset results
+    document.getElementById('results-section').classList.add('hidden');
+
+    try {
+      const payload = {
+        code,
+        language: document.getElementById('lang-select').value || null,
+        provider: document.getElementById('provider-select').value,
+        focus_areas: focusAreas.length ? focusAreas : null,
+        title: `Review ${new Date().toLocaleTimeString()}`
+      };
+
+      const headers = { 'Content-Type': 'application/json' };
+      if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+
+      const resp = await fetch(`${API_BASE}/review/`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload)
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || `HTTP ${resp.status}`);
+      }
+
+      const data = await resp.json();
+      renderResults(data, code);
+    } catch (err) {
+      // Demo mode — render mock results if backend is offline
+      if (err.message.includes('Failed to fetch') || err.message.includes('ERR_CONNECTION_REFUSED')) {
+        renderResults(getMockResults(code), code);
+        showToast('Backend offline — showing demo results', 'error');
+      } else {
+        showToast('Error: ' + err.message, 'error');
+      }
+    } finally {
+      btn.classList.remove('loading');
+      btn.disabled = false;
+    }
+  }
+
+  function renderResults(data, inputCode) {
+    analysisResult = data;
+    originalCode = inputCode;
+    optimizedCode = data.optimized_code || inputCode;
+
+    // Show optimized in right pane
+    const output = document.getElementById('code-output');
+    document.getElementById('output-placeholder').style.display = 'none';
+    output.innerHTML = `<div style="padding:20px;font-family:var(--font-mono);font-size:13px;line-height:1.7;color:#6ee7b7;white-space:pre-wrap;word-break:break-word">${escHtml(optimizedCode)}</div>`;
+
+    // Summary
+    document.getElementById('summary-text').textContent = data.summary || 'Analysis complete.';
+
+    // Language tag
+    if (data.language) {
+      document.getElementById('result-summary').querySelector('h3').innerHTML =
+        `// AI SUMMARY &nbsp;<span style="font-size:10px;background:rgba(0,229,255,0.1);color:var(--accent);padding:3px 8px;border-radius:4px;border:1px solid rgba(0,229,255,0.3)">${data.language.toUpperCase()}</span>`;
+    }
+
+    // Severity chips
+    const counts = data.issue_counts || {};
+    const severityBar = document.getElementById('severity-bar');
+    severityBar.innerHTML = '';
+    const orders = [
+      { key: 'critical', label: 'Critical', cls: 'chip-critical', icon: '🔴' },
+      { key: 'high', label: 'High', cls: 'chip-high', icon: '🟠' },
+      { key: 'medium', label: 'Medium', cls: 'chip-medium', icon: '🟡' },
+      { key: 'low', label: 'Low', cls: 'chip-low', icon: '🟢' },
+      { key: 'info', label: 'Info', cls: 'chip-info', icon: 'ℹ' },
+    ];
+    let totalIssues = 0;
+    orders.forEach(s => {
+      const c = counts[s.key] || 0;
+      if (c > 0) {
+        totalIssues += c;
+        severityBar.innerHTML += `<div class="severity-chip ${s.cls}">${s.icon} <span class="count">${c}</span> ${s.label}</div>`;
+      }
+    });
+    if (totalIssues === 0) {
+      severityBar.innerHTML = `<div class="severity-chip chip-info">✓ <span class="count">${data.issues?.length || 0}</span> Issues Found</div>`;
+    }
+
+    // Issues
+    const issuesList = document.getElementById('issues-list');
+    issuesList.innerHTML = '';
+    const issues = data.issues || [];
+    issues.forEach((issue, i) => {
+      const card = document.createElement('div');
+      card.className = 'issue-card';
+      card.style.animationDelay = `${i * 0.05}s`;
+      card.innerHTML = `
+        <div class="issue-header" onclick="toggleIssue(${i})">
+          <div class="issue-left">
+            <span class="issue-badge badge-${issue.severity}">${issue.severity?.toUpperCase()}</span>
+            <span class="issue-type-tag">${issue.issue_type}</span>
+            <span class="issue-desc">${escHtml(issue.description)}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;flex-shrink:0">
+            ${issue.line_number ? `<span class="issue-line">LINE ${issue.line_number}</span>` : ''}
+            <span style="color:var(--muted);font-size:12px" id="chevron-${i}">▼</span>
+          </div>
+        </div>
+        <div class="issue-body" id="issue-body-${i}">
+          ${issue.suggestion ? `<div class="suggestion-box"><strong>// SUGGESTION</strong>${escHtml(issue.suggestion)}</div>` : ''}
+        </div>
+      `;
+      issuesList.appendChild(card);
+    });
+
+    // Diff
+    document.getElementById('diff-original').textContent = inputCode;
+    document.getElementById('diff-optimized').textContent = optimizedCode;
+
+    // Show results
+    document.getElementById('results-section').classList.remove('hidden');
+    document.getElementById('results-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    showToast(`Analysis complete — ${issues.length} issue(s) found`, 'success');
+  }
+
+  function toggleIssue(i) {
+    const body = document.getElementById(`issue-body-${i}`);
+    const chev = document.getElementById(`chevron-${i}`);
+    body.classList.toggle('open');
+    chev.textContent = body.classList.contains('open') ? '▲' : '▼';
+  }
+
+  // ── Mock results (when backend offline) ──
+  function getMockResults(code) {
+    const isPython = code.includes('def ') || code.includes('import ');
+    return {
+      language: isPython ? 'python' : 'javascript',
+      summary: 'The code contains several critical security vulnerabilities including SQL injection risks and weak password hashing. Performance can be improved by eliminating the O(n²) loop. Hardcoded credentials must be moved to environment variables.',
+      issues: [
+        { id: 1, issue_type: 'security', severity: 'critical', line_number: 7, description: 'SQL Injection vulnerability — user input concatenated directly into query string', suggestion: 'Use parameterized queries: cursor.execute("SELECT * FROM users WHERE username = ?", (username,))' },
+        { id: 2, issue_type: 'security', severity: 'high', line_number: 13, description: 'MD5 is cryptographically broken and should not be used for password hashing', suggestion: 'Use bcrypt or argon2: import bcrypt; return bcrypt.hashpw(password.encode(), bcrypt.gensalt())' },
+        { id: 3, issue_type: 'performance', severity: 'high', line_number: 17, description: 'O(n²) nested loop can be replaced with a set-based approach for O(n) complexity', suggestion: 'Use collections.Counter to find duplicates in linear time' },
+        { id: 4, issue_type: 'security', severity: 'critical', line_number: 24, description: 'Hardcoded database password and API key in source code', suggestion: 'Use environment variables: DB_PASSWORD = os.getenv("DB_PASSWORD")' },
+        { id: 5, issue_type: 'bug', severity: 'medium', line_number: 29, description: 'Plain text password comparison — hashed passwords should be compared using constant-time functions', suggestion: 'Use bcrypt.checkpw(pwd.encode(), stored_hash) for secure comparison' },
+      ],
+      optimized_code: `import sqlite3
+import bcrypt
+import os
+from collections import Counter
+
+def get_user(username: str):
+    """Fetch user with parameterized query to prevent SQL injection."""
+    conn = sqlite3.connect('users.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+    return cursor.fetchone()
+
+def hash_password(password: str) -> bytes:
+    """Hash password using bcrypt — industry standard."""
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt())
+
+def process_data(items: list) -> list:
+    """Find duplicates in O(n) time using Counter."""
+    counts = Counter(items)
+    return [item for item, count in counts.items() if count > 1]
+
+# Load secrets from environment variables
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+API_KEY = os.getenv("API_KEY")
+
+def login(user: str, pwd: str) -> bool:
+    """Secure login using bcrypt constant-time comparison."""
+    stored = get_user(user)
+    if stored and bcrypt.checkpw(pwd.encode(), stored[1]):
+        return True
+    return False`,
+      issue_counts: { critical: 2, high: 2, medium: 1 },
+      session_id: 999,
+      status: 'completed',
+      created_at: new Date().toISOString()
+    };
+  }
+
+  // ── Helpers ──
+  function escHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function clearCode() {
+    document.getElementById('code-input').value = '';
+    document.getElementById('code-output').innerHTML = `<div class="output-placeholder" id="output-placeholder"><span class="big-icon">⬡</span><p>OPTIMIZED CODE APPEARS HERE</p></div>`;
+    document.getElementById('results-section').classList.add('hidden');
+  }
+
+  function triggerUpload() { document.getElementById('file-upload').click(); }
+
+  function handleFileUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      document.getElementById('code-input').value = ev.target.result;
+      // Auto-detect language from extension
+      const ext = file.name.split('.').pop().toLowerCase();
+      const extMap = { py:'python', js:'javascript', ts:'typescript', java:'java', c:'c', cpp:'cpp', go:'go', rs:'rust', php:'php', rb:'ruby', swift:'swift', kt:'kotlin', sql:'sql', sh:'bash' };
+      if (extMap[ext]) document.getElementById('lang-select').value = extMap[ext];
+      showToast(`Loaded: ${file.name}`, 'success');
+    };
+    reader.readAsText(file);
+  }
+
+  function copyCode(which) {
+    const text = which === 'input'
+      ? document.getElementById('code-input').value
+      : optimizedCode;
+    copyText(text);
+  }
+
+  function copyText(text) {
+    if (!text) { showToast('Nothing to copy', 'error'); return; }
+    navigator.clipboard.writeText(text).then(() => showToast('Copied to clipboard!', 'success'));
+  }
+
+  function downloadReport() {
+    if (!analysisResult) return;
+    const lines = [
+      `# CodeRefine Analysis Report`,
+      `Generated: ${new Date().toLocaleString()}`,
+      `Language: ${analysisResult.language}`,
+      ``,
+      `## Summary`,
+      analysisResult.summary,
+      ``,
+      `## Issues (${(analysisResult.issues||[]).length} total)`,
+      ...(analysisResult.issues||[]).map((iss, i) =>
+        `\n### ${i+1}. [${iss.severity?.toUpperCase()}] ${iss.issue_type}\n- Line: ${iss.line_number || 'N/A'}\n- ${iss.description}\n- Fix: ${iss.suggestion}`
+      ),
+      `\n## Optimized Code\n\`\`\`${analysisResult.language}\n${optimizedCode}\n\`\`\``
+    ];
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'coderefine-report.md'; a.click();
+    URL.revokeObjectURL(url);
+    showToast('Report downloaded!', 'success');
+  }
+
+  // ── Nav ──
+  function showSection(sec) {
+    document.querySelectorAll('.nav-pill').forEach(p => p.classList.remove('active'));
+    event.target.classList.add('active');
+    if (sec !== 'review') showToast(`${sec.charAt(0).toUpperCase()+sec.slice(1)} coming soon`, 'error');
+  }
+
+  // ── Auth modal ──
+  let authMode = 'login';
+  function openAuthModal(mode) {
+    authMode = mode;
+    document.getElementById('modal-title').textContent = mode === 'login' ? 'SIGN IN' : 'REGISTER';
+    document.getElementById('auth-submit-btn').textContent = mode === 'login' ? 'Sign In' : 'Create Account';
+    document.getElementById('register-name-field').style.display = mode === 'register' ? 'block' : 'none';
+    document.getElementById('modal-switch').innerHTML = mode === 'login'
+      ? `Don't have an account? <a href="#" onclick="openAuthModal('register');return false" style="color:var(--accent)">Register</a>`
+      : `Already have an account? <a href="#" onclick="openAuthModal('login');return false" style="color:var(--accent)">Sign In</a>`;
+    document.getElementById('auth-modal').style.display = 'flex';
+  }
+  function closeAuthModal() { document.getElementById('auth-modal').style.display = 'none'; }
+
+  async function submitAuth() {
+    const email = document.getElementById('auth-email').value.trim();
+    const password = document.getElementById('auth-password').value;
+
+    if (!email || !password) { showToast('Please fill all fields', 'error'); return; }
+
+    try {
+      const endpoint = authMode === 'login' ? '/auth/login' : '/auth/register';
+      const body = authMode === 'login'
+        ? { username: email, password }
+        : { username: document.getElementById('auth-username').value, email, password };
+
+      const resp = await fetch(API_BASE + endpoint, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.detail || 'Auth failed');
+
+      if (authMode === 'login') {
+        authToken = data.access_token;
+        localStorage.setItem('cr_token', authToken);
+        showToast('Signed in successfully!', 'success');
+      } else {
+        showToast('Account created! Please sign in.', 'success');
+        openAuthModal('login');
+        return;
+      }
+      closeAuthModal();
+    } catch(err) {
+      showToast(err.message, 'error');
+    }
+  }
+
+  // ── Toast ──
+  function showToast(msg, type = 'success') {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = `toast show ${type}`;
+    setTimeout(() => t.classList.remove('show'), 3000);
+  }
+
+  // Close modal on backdrop
+  document.getElementById('auth-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeAuthModal();
+  });
+
+  // Keyboard shortcut: Ctrl/Cmd + Enter to analyze
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') analyzeCode();
+  });
+</script>
+</body>
+</html>
